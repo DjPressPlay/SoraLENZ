@@ -6,11 +6,18 @@
 <title>Zetsu Sora Aggregator</title>
 
 <style>
-  body {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
     margin: 0;
+    padding: 0;
+    height: 100%;
     background: #000;
     font-family: 'Poppins', sans-serif;
     color: #fff;
+    overflow: hidden;
   }
 
   /* Puffy Crypto Panel */
@@ -75,22 +82,54 @@
     background: rgba(0,255,255,0.28);
   }
 
+  #z-tab-buttons button.active {
+    background: rgba(0,255,255,0.4);
+    box-shadow: 0 0 12px rgba(0,255,255,0.35);
+  }
+
   /* iFrame container */
   #tabContainer {
-    position: absolute;
-    top: 82px;
+    position: fixed;
+    top: 70px;
     left: 0;
-    width: 100%;
-    height: calc(100% - 82px);
+    right: 0;
+    bottom: 0;
     background: #000;
     overflow: hidden;
   }
 
-  iframe {
+  #tabContainer iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     border: none;
     display: none;
+    background: #111;
+  }
+
+  #tabContainer iframe.active {
+    display: block;
+  }
+
+  /* Empty state */
+  #emptyState {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: rgba(200,250,255,0.5);
+  }
+
+  #emptyState h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  #emptyState p {
+    font-size: 0.9rem;
   }
 </style>
 </head>
@@ -112,49 +151,106 @@
 </div>
 
 <!-- ===== TAB VIEW ===== -->
-<div id="tabContainer"></div>
+<div id="tabContainer">
+  <div id="emptyState">
+    <h2>No tabs open</h2>
+    <p>Enter a URL above and click "Load Tab" to get started</p>
+  </div>
+</div>
 
 
-<!-- ====== ORIGINAL JS (unchanged logic) ====== -->
+<!-- ====== WEBVIEW LOGIC ====== -->
 <script>
-// Zetsu Sora Aggregator — Phase 3 (Fixed)
-// SAME LOGIC you already had
-
+// Zetsu Sora Aggregator — Webview Fixed
 let tabs = {};
+let tabButtons = {};
 let activeTab = null;
 
+function showEmptyState(show) {
+  const emptyState = document.getElementById('emptyState');
+  if (emptyState) {
+    emptyState.style.display = show ? 'block' : 'none';
+  }
+}
+
 function switchTab(id) {
+  // Hide all iframes and deactivate all buttons
   Object.keys(tabs).forEach(key => {
-    tabs[key].style.display = (key === id ? "block" : "none");
+    tabs[key].classList.remove('active');
+    if (tabButtons[key]) {
+      tabButtons[key].classList.remove('active');
+    }
   });
-  activeTab = id;
+
+  // Show selected iframe and activate button
+  if (tabs[id]) {
+    tabs[id].classList.add('active');
+    if (tabButtons[id]) {
+      tabButtons[id].classList.add('active');
+    }
+    activeTab = id;
+  }
+}
+
+function normalizeUrl(url) {
+  let normalized = url.trim();
+  if (!normalized.match(/^https?:\/\//i)) {
+    normalized = 'https://' + normalized;
+  }
+  return normalized;
 }
 
 document.getElementById('z-open-tab').onclick = () => {
-  const url = document.getElementById('z-url-input').value.trim();
+  let url = document.getElementById('z-url-input').value.trim();
   if (!url) return alert("Enter a URL first.");
+
+  url = normalizeUrl(url);
+
+  // Validate URL
+  let hostname;
+  try {
+    hostname = new URL(url).hostname;
+  } catch (e) {
+    return alert("Invalid URL format. Please enter a valid URL.");
+  }
 
   const tabId = `tab-${Date.now()}`;
 
+  // Hide empty state
+  showEmptyState(false);
+
+  // Create iframe with proper attributes
   const iframe = document.createElement('iframe');
   iframe.src = url;
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+  iframe.setAttribute('loading', 'lazy');
+  iframe.setAttribute('referrerpolicy', 'no-referrer');
   document.getElementById('tabContainer').appendChild(iframe);
 
   tabs[tabId] = iframe;
 
+  // Create tab button
   const tabBtn = document.createElement('button');
-  tabBtn.textContent = new URL(url).hostname;
+  tabBtn.textContent = hostname;
+  tabBtn.title = url;
   tabBtn.onclick = () => switchTab(tabId);
   document.getElementById('z-tab-buttons').appendChild(tabBtn);
+  tabButtons[tabId] = tabBtn;
 
   switchTab(tabId);
 };
 
 document.getElementById('z-clear').onclick = () => {
-  document.getElementById('tabContainer').innerHTML = "";
+  // Remove all iframes
+  Object.values(tabs).forEach(iframe => iframe.remove());
+
   tabs = {};
+  tabButtons = {};
   activeTab = null;
   document.getElementById('z-tab-buttons').innerHTML = "";
+
+  // Show empty state
+  showEmptyState(true);
 };
 
 document.getElementById('z-scrape').onclick = () => {
@@ -169,8 +265,8 @@ document.getElementById('z-scrape').onclick = () => {
   try {
     doc = iframe.contentWindow.document;
   } catch (err) {
-    console.error("❌ Cross-origin block:", err);
-    alert("❌ Cannot scrape this page (cross-origin protection).");
+    console.error("Cross-origin block:", err);
+    alert("Cannot scrape this page (cross-origin protection). Only same-origin pages can be scraped.");
     return;
   }
 
@@ -190,9 +286,72 @@ document.getElementById('z-scrape').onclick = () => {
     }
   });
 
-  console.log("✅ Zetsu Scrape JSON:", out);
-  alert(`✅ Scraped ${out.length} items. Check console for JSON.`);
+  console.log("Zetsu Scrape JSON:", out);
+  alert(`Scraped ${out.length} items. Check console for JSON.`);
 };
+
+// Handle Enter key in URL input
+document.getElementById('z-url-input').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    document.getElementById('z-open-tab').click();
+  }
+});
+
+// Function to load a tab programmatically
+function loadTab(url) {
+  url = normalizeUrl(url);
+
+  let hostname;
+  try {
+    hostname = new URL(url).hostname;
+  } catch (e) {
+    console.error("Invalid URL:", url);
+    return;
+  }
+
+  const tabId = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+  // Hide empty state
+  showEmptyState(false);
+
+  // Create iframe with proper attributes
+  const iframe = document.createElement('iframe');
+  iframe.src = url;
+  iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups');
+  iframe.setAttribute('loading', 'lazy');
+  iframe.setAttribute('referrerpolicy', 'no-referrer');
+  document.getElementById('tabContainer').appendChild(iframe);
+
+  tabs[tabId] = iframe;
+
+  // Create tab button
+  const tabBtn = document.createElement('button');
+  tabBtn.textContent = hostname;
+  tabBtn.title = url;
+  tabBtn.onclick = () => switchTab(tabId);
+  document.getElementById('z-tab-buttons').appendChild(tabBtn);
+  tabButtons[tabId] = tabBtn;
+
+  return tabId;
+}
+
+// Load hard-coded default tabs on page load
+window.addEventListener('DOMContentLoaded', () => {
+  const defaultTabs = [
+    'https://sorachart.com/top-creators?sort=remixes&page=47',
+    'https://www.sorastats.com/'
+  ];
+
+  let lastTabId = null;
+  defaultTabs.forEach(url => {
+    lastTabId = loadTab(url);
+  });
+
+  // Switch to the last loaded tab (or first if preferred)
+  if (lastTabId) {
+    switchTab(lastTabId);
+  }
+});
 </script>
 
 </body>
